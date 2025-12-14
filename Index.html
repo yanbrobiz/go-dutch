@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>分帳系統</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 20px;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      overflow: hidden;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 30px;
+      text-align: center;
+    }
+
+    .header h1 {
+      font-size: 2.5em;
+      margin-bottom: 10px;
+    }
+
+    .header p {
+      opacity: 0.9;
+      font-size: 1.1em;
+    }
+
+    .tabs {
+      display: flex;
+      background: #f5f5f5;
+      border-bottom: 2px solid #e0e0e0;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 20px;
+      text-align: center;
+      cursor: pointer;
+      background: #f5f5f5;
+      border: none;
+      font-size: 1.1em;
+      font-weight: 600;
+      transition: all 0.3s;
+      color: #666;
+    }
+
+    .tab:hover {
+      background: #e8e8e8;
+    }
+
+    .tab.active {
+      background: white;
+      color: #667eea;
+      border-bottom: 3px solid #667eea;
+    }
+
+    .tab-content {
+      display: none;
+      padding: 30px;
+    }
+
+    .tab-content.active {
+      display: block;
+      animation: fadeIn 0.3s;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 600;
+      color: #333;
+    }
+
+    .form-group input,
+    .form-group textarea {
+      width: 100%;
+      padding: 12px 15px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 1.1em;
+      transition: all 0.3s;
+    }
+
+    .form-group input:focus,
+    .form-group textarea:focus {
+      outline: none;
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+
+    .form-group textarea {
+      resize: vertical;
+      min-height: 60px;
+    }
+
+    .hint {
+      font-size: 0.9em;
+      color: #666;
+      margin-top: 5px;
+      background: #f0f0f0;
+      padding: 10px;
+      border-radius: 5px;
+    }
+
+    .hint strong {
+      color: #28a745;
+    }
+
+    .hint .negative {
+      color: #dc3545;
+    }
+
+    .btn {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 15px 30px;
+      border: none;
+      border-radius: 8px;
+      font-size: 1.2em;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+      width: 100%;
+      margin-top: 10px;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+    }
+
+    .btn-secondary {
+      background: #6c757d;
+      margin-top: 10px;
+      font-size: 1em;
+      padding: 10px 20px;
+    }
+
+    .btn-danger {
+      background: #dc3545;
+    }
+
+    .records-container {
+      margin-top: 20px;
+    }
+
+    .record-card {
+      background: #f8f9fa;
+      padding: 20px;
+      margin-bottom: 15px;
+      border-radius: 8px;
+      transition: all 0.3s;
+      border-left: 4px solid #667eea;
+    }
+
+    .record-card.paid-by-you {
+      border-left-color: #28a745;
+    }
+
+    .record-card.paid-by-girlfriend {
+      border-left-color: #ff6b9d;
+    }
+
+    .record-card:hover {
+      box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+      transform: translateX(5px);
+    }
+
+    .record-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .record-title {
+      font-size: 1.3em;
+      font-weight: 700;
+      color: #333;
+      flex: 1;
+    }
+
+    .record-amount {
+      font-size: 1.8em;
+      font-weight: 700;
+      margin-left: 20px;
+    }
+
+    .amount-positive {
+      color: #ff6b9d;
+    }
+
+    .amount-negative {
+      color: #28a745;
+    }
+
+    .record-details {
+      color: #666;
+      line-height: 1.6;
+    }
+
+    .record-details div {
+      margin: 5px 0;
+    }
+
+    .balance-summary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 30px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    .balance-amount {
+      font-size: 3em;
+      font-weight: 700;
+      margin: 20px 0;
+    }
+
+    .balance-text {
+      font-size: 1.5em;
+      opacity: 0.95;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-top: 20px;
+    }
+
+    .stat-card {
+      background: #f8f9fa;
+      padding: 20px;
+      border-radius: 10px;
+      text-align: center;
+    }
+
+    .stat-card h3 {
+      color: #666;
+      font-size: 0.9em;
+      margin-bottom: 10px;
+    }
+
+    .stat-card .value {
+      font-size: 2em;
+      font-weight: 700;
+    }
+
+    .stat-card.girlfriend {
+      border: 2px solid #ff6b9d;
+    }
+
+    .stat-card.girlfriend .value {
+      color: #ff6b9d;
+    }
+
+    .stat-card.you {
+      border: 2px solid #28a745;
+    }
+
+    .stat-card.you .value {
+      color: #28a745;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+      font-size: 1.2em;
+    }
+
+    .message {
+      padding: 15px;
+      margin: 15px 0;
+      border-radius: 8px;
+      font-weight: 500;
+    }
+
+    .message.success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+
+    .message.error {
+      background: #f8d7da;
+      color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+
+    .sheet-link {
+      margin-top: 20px;
+      padding: 15px;
+      background: #e7f3ff;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .sheet-link a {
+      color: #667eea;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 1.1em;
+    }
+
+    .sheet-link a:hover {
+      text-decoration: underline;
+    }
+
+    @media (max-width: 768px) {
+      .header h1 {
+        font-size: 1.8em;
+      }
+
+      .tab {
+        font-size: 0.9em;
+        padding: 15px 10px;
+      }
+
+      .tab-content {
+        padding: 20px;
+      }
+
+      .record-header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .record-amount {
+        margin-left: 0;
+        margin-top: 10px;
+      }
+
+      .balance-amount {
+        font-size: 2em;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>💑 分帳系統</h1>
+      <p>記錄你和女友的消費</p>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab(0)">記帳</button>
+      <button class="tab" onclick="switchTab(1)">批量導入</button>
+      <button class="tab" onclick="switchTab(2)">記錄</button>
+      <button class="tab" onclick="switchTab(3)">結算</button>
+    </div>
+
+    <!-- Tab 1: 記帳 -->
+    <div class="tab-content active" id="tab-0">
+      <h2 style="margin-bottom: 20px;">快速記帳</h2>
+
+      <form id="addForm" onsubmit="handleAddRecord(event)">
+        <div class="form-group">
+          <label for="amount">金額</label>
+          <input type="number" id="amount" required placeholder="正數=女友付，負數=你付" step="0.01">
+          <div class="hint">
+            <strong>正數（例如：500）</strong> = 女友付款，你欠女友<br>
+            <span class="negative"><strong>負數（例如：-300）</strong> = 你付款，女友欠你</span>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="item">項目說明</label>
+          <input type="text" id="item" required placeholder="例如：好市多、停車費、晚餐">
+        </div>
+
+        <div class="form-group">
+          <label for="note">備註（選填）</label>
+          <textarea id="note" placeholder="例如：公用、黑五特價"></textarea>
+        </div>
+
+        <button type="submit" class="btn">新增記錄</button>
+      </form>
+
+      <div id="addMessage"></div>
+      <div id="sheetLink" class="sheet-link" style="display: none;"></div>
+    </div>
+
+    <!-- Tab 2: 批量導入 -->
+    <div class="tab-content" id="tab-1">
+      <h2 style="margin-bottom: 20px;">批量導入 LINE 記錄</h2>
+
+      <div class="form-group">
+        <label for="batchInput">貼上你的 LINE 記錄</label>
+        <textarea id="batchInput" placeholder="直接貼上，每行一筆記錄，例如：
+370 公企中心停車
+-140 忠家雞排
+250牙膏跟足膜" style="min-height: 300px; font-family: monospace;"></textarea>
+        <div class="hint">
+          格式：每行開頭是金額（正數=女友付，負數=你付），後面接項目說明<br>
+          例如：<strong>500 好市多</strong> 或 <strong>-300 晚餐</strong>
+        </div>
+      </div>
+
+      <button class="btn" onclick="handleBatchImport()">批量導入</button>
+
+      <div id="batchMessage"></div>
+      <div id="batchPreview"></div>
+    </div>
+
+    <!-- Tab 3: 記錄 -->
+    <div class="tab-content" id="tab-2">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h2>所有記錄</h2>
+        <button class="btn btn-secondary" onclick="loadRecords()" style="width: auto; padding: 10px 20px;">重新整理</button>
+      </div>
+
+      <div id="recordsContainer" class="records-container">
+        <div class="loading">載入中...</div>
+      </div>
+
+      <button class="btn btn-danger" onclick="clearRecords()" style="margin-top: 20px;">清除所有記錄</button>
+    </div>
+
+    <!-- Tab 4: 結算 -->
+    <div class="tab-content" id="tab-3">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h2>結算資訊</h2>
+        <button class="btn btn-secondary" onclick="loadSettlement()" style="width: auto; padding: 10px 20px;">重新整理</button>
+      </div>
+
+      <div id="settlementContainer">
+        <div class="loading">載入中...</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 設定名字
+    const GIRLFRIEND_NAME = "女友";
+    const YOUR_NAME = "你";
+
+    // 切換分頁
+    function switchTab(index) {
+      const tabs = document.querySelectorAll('.tab');
+      const contents = document.querySelectorAll('.tab-content');
+
+      tabs.forEach((tab, i) => {
+        if (i === index) {
+          tab.classList.add('active');
+          contents[i].classList.add('active');
+
+          // 載入對應的資料
+          if (i === 2) loadRecords();   // Tab 3: 記錄
+          if (i === 3) loadSettlement(); // Tab 4: 結算
+        } else {
+          tab.classList.remove('active');
+          contents[i].classList.remove('active');
+        }
+      });
+    }
+
+    // 新增記錄
+    function handleAddRecord(event) {
+      event.preventDefault();
+
+      const amount = parseFloat(document.getElementById('amount').value);
+      const item = document.getElementById('item').value;
+      const note = document.getElementById('note').value;
+
+      // 判斷誰付款
+      const payer = amount > 0 ? GIRLFRIEND_NAME : YOUR_NAME;
+      const absAmount = Math.abs(amount);
+
+      const data = {
+        item: item,
+        amount: absAmount,
+        payer: payer,
+        splitDetails: [
+          {
+            name: amount > 0 ? YOUR_NAME : GIRLFRIEND_NAME,
+            amount: absAmount
+          }
+        ],
+        note: note
+      };
+
+      const messageDiv = document.getElementById('addMessage');
+      messageDiv.innerHTML = '<div class="loading">處理中...</div>';
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result.success) {
+            messageDiv.innerHTML = '<div class="message success">' + result.message + '</div>';
+            document.getElementById('addForm').reset();
+
+            // 顯示 Google Sheet 連結
+            if (result.sheetUrl) {
+              const linkDiv = document.getElementById('sheetLink');
+              linkDiv.innerHTML = '<a href="' + result.sheetUrl + '" target="_blank">📊 開啟 Google Sheet 查看完整記錄</a>';
+              linkDiv.style.display = 'block';
+            }
+          } else {
+            messageDiv.innerHTML = '<div class="message error">' + result.message + '</div>';
+          }
+        })
+        .withFailureHandler(function(error) {
+          messageDiv.innerHTML = '<div class="message error">錯誤：' + error.message + '</div>';
+        })
+        .addRecord(data);
+    }
+
+    // 載入記錄
+    function loadRecords() {
+      const container = document.getElementById('recordsContainer');
+      container.innerHTML = '<div class="loading">載入中...</div>';
+
+      google.script.run
+        .withSuccessHandler(function(records) {
+          if (records.length === 0) {
+            container.innerHTML = '<div class="loading">目前沒有任何記錄</div>';
+            return;
+          }
+
+          let html = '';
+          records.reverse().forEach(function(record) {
+            const date = new Date(record.date);
+            const dateStr = date.toLocaleDateString('zh-TW') + ' ' + date.toLocaleTimeString('zh-TW', {hour: '2-digit', minute: '2-digit'});
+
+            const isGirlfriendPaid = record.payer === GIRLFRIEND_NAME;
+            const cardClass = isGirlfriendPaid ? 'paid-by-girlfriend' : 'paid-by-you';
+            const amountClass = isGirlfriendPaid ? 'amount-positive' : 'amount-negative';
+            const sign = isGirlfriendPaid ? '+' : '-';
+
+            html += '<div class="record-card ' + cardClass + '">';
+            html += '  <div class="record-header">';
+            html += '    <div class="record-title">' + record.item + '</div>';
+            html += '    <div class="record-amount ' + amountClass + '">' + sign + '$' + record.amount.toLocaleString() + '</div>';
+            html += '  </div>';
+            html += '  <div class="record-details">';
+            html += '    <div>📅 ' + dateStr + '</div>';
+            html += '    <div>💳 ' + record.payer + ' 付款</div>';
+            if (record.note) {
+              html += '    <div>📝 ' + record.note + '</div>';
+            }
+            html += '  </div>';
+            html += '</div>';
+          });
+
+          container.innerHTML = html;
+        })
+        .withFailureHandler(function(error) {
+          container.innerHTML = '<div class="message error">載入失敗：' + error.message + '</div>';
+        })
+        .getRecords();
+    }
+
+    // 載入結算資訊
+    function loadSettlement() {
+      const container = document.getElementById('settlementContainer');
+      container.innerHTML = '<div class="loading">載入中...</div>';
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          console.log('結算結果:', result);
+          console.log('balances:', result.balances);
+
+          if (result.balances.length === 0) {
+            container.innerHTML = '<div class="loading">目前沒有任何記錄</div>';
+            return;
+          }
+
+          let girlfriendBalance = 0;
+          let yourBalance = 0;
+
+          result.balances.forEach(function(item) {
+            console.log('處理餘額項目:', item.person, item.balance);
+            if (item.person === GIRLFRIEND_NAME) {
+              girlfriendBalance = item.balance;
+            } else if (item.person === YOUR_NAME) {
+              yourBalance = item.balance;
+            }
+          });
+
+          console.log('女友餘額:', girlfriendBalance, '你的餘額:', yourBalance);
+
+          let html = '<div class="balance-summary">';
+
+          if (yourBalance < 0) {
+            // 你欠女友
+            html += '<div class="balance-text">你欠女友</div>';
+            html += '<div class="balance-amount">$' + Math.abs(yourBalance).toLocaleString() + '</div>';
+          } else if (yourBalance > 0) {
+            // 女友欠你
+            html += '<div class="balance-text">女友欠你</div>';
+            html += '<div class="balance-amount">$' + yourBalance.toLocaleString() + '</div>';
+          } else {
+            html += '<div class="balance-text">已結清</div>';
+            html += '<div class="balance-amount">$0</div>';
+          }
+
+          html += '</div>';
+
+          // 統計資訊
+          html += '<div class="stats-grid">';
+          html += '  <div class="stat-card girlfriend">';
+          html += '    <h3>女友總共付</h3>';
+          html += '    <div class="value">$' + (girlfriendBalance > 0 ? girlfriendBalance : 0).toLocaleString() + '</div>';
+          html += '  </div>';
+          html += '  <div class="stat-card you">';
+          html += '    <h3>你總共付</h3>';
+          html += '    <div class="value">$' + (yourBalance > 0 ? yourBalance : 0).toLocaleString() + '</div>';
+          html += '  </div>';
+          html += '</div>';
+
+          container.innerHTML = html;
+        })
+        .withFailureHandler(function(error) {
+          container.innerHTML = '<div class="message error">載入失敗：' + error.message + '</div>';
+        })
+        .calculateSettlement();
+    }
+
+    // 清除所有記錄
+    function clearRecords() {
+      if (!confirm('確定要清除所有記錄嗎？此操作無法復原！')) {
+        return;
+      }
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          if (result.success) {
+            alert(result.message);
+            loadRecords();
+          } else {
+            alert('清除失敗：' + result.message);
+          }
+        })
+        .withFailureHandler(function(error) {
+          alert('錯誤：' + error.message);
+        })
+        .clearAllRecords();
+    }
+
+    // 批量導入
+    function handleBatchImport() {
+      const input = document.getElementById('batchInput').value.trim();
+      const messageDiv = document.getElementById('batchMessage');
+      const previewDiv = document.getElementById('batchPreview');
+
+      if (!input) {
+        messageDiv.innerHTML = '<div class="message error">請貼上記錄內容</div>';
+        return;
+      }
+
+      // 解析每一行
+      const lines = input.split('\n');
+      const records = [];
+      let errors = [];
+
+      lines.forEach(function(line, index) {
+        line = line.trim();
+        if (!line) return; // 跳過空行
+
+        // 使用正則表達式匹配：開頭是數字（可能有負號），後面是描述
+        const match = line.match(/^(-?\d+(?:\.\d+)?)\s*(.+)$/);
+
+        if (match) {
+          const amount = parseFloat(match[1]);
+          const item = match[2].trim();
+
+          // 判斷誰付款
+          const payer = amount > 0 ? GIRLFRIEND_NAME : YOUR_NAME;
+          const absAmount = Math.abs(amount);
+
+          records.push({
+            item: item,
+            amount: absAmount,
+            payer: payer,
+            splitDetails: [
+              {
+                name: amount > 0 ? YOUR_NAME : GIRLFRIEND_NAME,
+                amount: absAmount
+              }
+            ],
+            note: ''
+          });
+        } else {
+          errors.push('第 ' + (index + 1) + ' 行格式錯誤：' + line);
+        }
+      });
+
+      if (records.length === 0) {
+        messageDiv.innerHTML = '<div class="message error">沒有找到有效的記錄</div>';
+        if (errors.length > 0) {
+          messageDiv.innerHTML += '<div class="message error">' + errors.join('<br>') + '</div>';
+        }
+        return;
+      }
+
+      // 顯示預覽
+      let previewHtml = '<div style="margin: 20px 0;"><h3>即將導入 ' + records.length + ' 筆記錄：</h3>';
+      previewHtml += '<div style="max-height: 300px; overflow-y: auto; background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 10px 0;">';
+
+      records.forEach(function(record, i) {
+        const sign = record.payer === GIRLFRIEND_NAME ? '+' : '-';
+        const color = record.payer === GIRLFRIEND_NAME ? '#ff6b9d' : '#28a745';
+        previewHtml += '<div style="padding: 8px; border-bottom: 1px solid #e0e0e0;">';
+        previewHtml += '<span style="color: ' + color + '; font-weight: bold;">' + sign + '$' + record.amount.toLocaleString() + '</span> ';
+        previewHtml += '<span>' + record.item + '</span>';
+        previewHtml += ' <span style="color: #666;">(' + record.payer + ' 付款)</span>';
+        previewHtml += '</div>';
+      });
+
+      previewHtml += '</div>';
+
+      if (errors.length > 0) {
+        previewHtml += '<div class="message error" style="margin-top: 10px;">跳過 ' + errors.length + ' 行錯誤：<br>' + errors.slice(0, 5).join('<br>');
+        if (errors.length > 5) {
+          previewHtml += '<br>...還有 ' + (errors.length - 5) + ' 個錯誤';
+        }
+        previewHtml += '</div>';
+      }
+
+      previewHtml += '<button class="btn" onclick="confirmBatchImport()">確認導入</button>';
+      previewHtml += '<button class="btn btn-secondary" onclick="cancelBatchImport()">取消</button>';
+      previewHtml += '</div>';
+
+      previewDiv.innerHTML = previewHtml;
+      messageDiv.innerHTML = '';
+
+      // 暫存資料
+      window.batchRecords = records;
+    }
+
+    // 確認批量導入
+    function confirmBatchImport() {
+      const records = window.batchRecords;
+      if (!records || records.length === 0) return;
+
+      const messageDiv = document.getElementById('batchMessage');
+      const previewDiv = document.getElementById('batchPreview');
+
+      messageDiv.innerHTML = '<div class="loading">導入中... (0/' + records.length + ')</div>';
+      previewDiv.innerHTML = '';
+
+      let completed = 0;
+      let failed = 0;
+
+      // 批量新增（一次一筆）
+      function addNext(index) {
+        if (index >= records.length) {
+          // 全部完成
+          messageDiv.innerHTML = '<div class="message success">成功導入 ' + completed + ' 筆記錄！' +
+            (failed > 0 ? '失敗 ' + failed + ' 筆。' : '') + '</div>';
+          document.getElementById('batchInput').value = '';
+          window.batchRecords = null;
+
+          // 切換到記錄頁面
+          setTimeout(function() {
+            switchTab(2);
+          }, 1000);
+          return;
+        }
+
+        google.script.run
+          .withSuccessHandler(function(result) {
+            if (result.success) {
+              completed++;
+            } else {
+              failed++;
+            }
+            messageDiv.innerHTML = '<div class="loading">導入中... (' + (completed + failed) + '/' + records.length + ')</div>';
+            addNext(index + 1);
+          })
+          .withFailureHandler(function(error) {
+            failed++;
+            messageDiv.innerHTML = '<div class="loading">導入中... (' + (completed + failed) + '/' + records.length + ')</div>';
+            addNext(index + 1);
+          })
+          .addRecord(records[index]);
+      }
+
+      addNext(0);
+    }
+
+    // 取消批量導入
+    function cancelBatchImport() {
+      document.getElementById('batchPreview').innerHTML = '';
+      document.getElementById('batchMessage').innerHTML = '';
+      window.batchRecords = null;
+    }
+
+    // 頁面載入時初始化
+    window.onload = function() {
+      loadRecords();
+    };
+  </script>
+</body>
+</html>
