@@ -346,9 +346,9 @@
       lines.forEach(function(line, index) {
         line = line.trim();
         if (!line) return;
-        var match = line.match(/^(-?\d+(?:\.\d+)?)\s*(.+)$/);
+        var match = line.match(/^([+-]?\d+(?:\.\d+)?)\s*(.+)$/);
         if (match) {
-          var amount = parseFloat(match[1]);
+          var amount = parseFloat(match[1].replace('+', ''));
           var item = match[2].trim();
           var payer = amount > 0 ? GIRLFRIEND_NAME : YOUR_NAME;
           var absAmount = Math.abs(amount);
