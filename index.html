@@ -58,6 +58,17 @@
     .message { padding: 15px; margin: 15px 0; border-radius: 8px; font-weight: 500; }
     .message.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
     .message.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    .message.warning { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+    .records-count { color: #666; margin-bottom: 10px; }
+    .record-card { position: relative; }
+    .btn-delete { margin-top: 10px; background: none; border: 1px solid #dc3545; color: #dc3545; border-radius: 6px; padding: 4px 12px; cursor: pointer; font-size: 0.9em; }
+    .btn-delete:hover { background: #dc3545; color: white; }
+    .btn-link { background: none; border: none; color: #155724; text-decoration: underline; cursor: pointer; font-size: 1em; font-weight: 600; margin-left: 8px; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+    .batch-list { max-height: 300px; overflow-y: auto; background: #f8f9fa; padding: 10px 15px; border-radius: 8px; margin: 10px 0; }
+    .batch-row { display: block; padding: 8px; border-bottom: 1px solid #e0e0e0; cursor: pointer; }
+    .batch-row.duplicate { background: #fff8e1; }
+    .dup-tag { white-space: nowrap; background: #ffc107; color: #333; font-size: 0.8em; padding: 2px 6px; border-radius: 4px; }
     @media (max-width: 768px) {
       .header h1 { font-size: 1.8em; }
       .tab { font-size: 0.9em; padding: 15px 10px; }
@@ -112,7 +123,9 @@
         <textarea id="batchInput" placeholder="直接貼上，每行一筆記錄，例如：&#10;370 公企中心停車&#10;-140 忠家雞排&#10;250牙膏跟足膜" style="min-height: 300px; font-family: monospace;"></textarea>
         <div class="hint">
           格式：每行開頭是金額（正數=女友付，負數=你付），後面接項目說明<br>
-          例如：<strong>500 好市多</strong> 或 <strong>-300 晚餐</strong>
+          例如：<strong>500 好市多</strong>、<strong>-300 晚餐</strong>、<strong>1,200 牙膏</strong><br>
+          支援千分位逗號、全形數字與負號；LINE 匯出的時間、名字、日期行會自動略過<br>
+          已經導入過的相同記錄會標示「可能重複」，預設不會再導入一次
         </div>
       </div>
       <button class="btn" onclick="handleBatchImport()">批量導入</button>
@@ -147,88 +160,94 @@
     var YOUR_NAME = "你";
     var STORAGE_KEY = "splitRecords";
 
+    // ---------- 工具 ----------
+    function escapeHtml(str) {
+      return String(str == null ? '' : str).replace(/[&<>"']/g, function(c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+
+    // 金額一律以「分」(整數) 計算，避免浮點誤差
+    function toCents(amount) { return Math.round(Number(amount) * 100) || 0; }
+    function formatCents(cents) {
+      return (Math.abs(cents) / 100).toLocaleString('zh-TW', { maximumFractionDigits: 2 });
+    }
+
+    function genId() {
+      return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    }
+
+    // ---------- 資料存取 ----------
     function getRecords() {
+      var records;
       try {
         var data = localStorage.getItem(STORAGE_KEY);
-        return data ? JSON.parse(data) : [];
+        records = data ? JSON.parse(data) : [];
+        if (!Array.isArray(records)) records = [];
       } catch (e) {
         return [];
       }
+      // 舊資料沒有 id，補上以便刪除/撤銷
+      var migrated = false;
+      records.forEach(function(r) {
+        if (!r.id) { r.id = genId(); migrated = true; }
+      });
+      if (migrated) saveRecords(records);
+      return records;
     }
 
     function saveRecords(records) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-    }
-
-    function addRecord(data) {
-      var records = getRecords();
-      var amountWithSign = data.amount;
-      if (data.payer === YOUR_NAME) {
-        amountWithSign = -Math.abs(data.amount);
-      } else {
-        amountWithSign = Math.abs(data.amount);
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+        return true;
+      } catch (e) {
+        alert('儲存失敗：' + e.message);
+        return false;
       }
-      records.push({
-        date: new Date().toISOString(),
-        item: data.item,
-        amount: amountWithSign,
-        payer: data.payer,
-        splitDetails: data.splitDetails,
-        note: data.note || ''
-      });
-      saveRecords(records);
     }
 
+    // 正數 = 女友付款（你欠女友）；負數 = 你付款（女友欠你）
+    function buildRecord(signedAmount, item, note, batchId) {
+      var girlfriendPaid = signedAmount > 0;
+      var absAmount = Math.abs(signedAmount);
+      var record = {
+        id: genId(),
+        date: new Date().toISOString(),
+        item: item,
+        amount: girlfriendPaid ? absAmount : -absAmount,
+        payer: girlfriendPaid ? GIRLFRIEND_NAME : YOUR_NAME,
+        splitDetails: [{ name: girlfriendPaid ? YOUR_NAME : GIRLFRIEND_NAME, amount: absAmount }],
+        note: note || ''
+      };
+      if (batchId) record.batchId = batchId;
+      return record;
+    }
+
+    function recordKey(r) {
+      return toCents(r.amount) + '|' + String(r.item).trim();
+    }
+
+    // ---------- 結算 ----------
     function calculateSettlement() {
       var records = getRecords();
-      var balances = {};
-
-      records.forEach(function(record) {
-        var payer = record.payer.trim();
-        var absAmount = Math.abs(record.amount);
-        if (!balances[payer]) balances[payer] = 0;
-        balances[payer] += absAmount;
-
-        if (record.splitDetails && record.splitDetails.length > 0) {
-          record.splitDetails.forEach(function(split) {
-            var person = split.name.trim();
-            var amount = parseFloat(split.amount) || 0;
-            if (!balances[person]) balances[person] = 0;
-            balances[person] -= amount;
-          });
-        }
+      var girlfriendPaid = 0, youPaid = 0, girlfriendCount = 0, youCount = 0;
+      records.forEach(function(r) {
+        var cents = Math.abs(toCents(r.amount));
+        if (r.payer === GIRLFRIEND_NAME) { girlfriendPaid += cents; girlfriendCount++; }
+        else { youPaid += cents; youCount++; }
       });
-
-      var settlements = [];
-      for (var person in balances) {
-        settlements.push({ person: person, balance: Math.round(balances[person] * 100) / 100 });
-      }
-
-      var transactions = [];
-      var debtors = settlements.filter(function(s) { return s.balance < 0; }).map(function(s) {
-        return { person: s.person, balance: s.balance };
-      }).sort(function(a, b) { return a.balance - b.balance; });
-      var creditors = settlements.filter(function(s) { return s.balance > 0; }).map(function(s) {
-        return { person: s.person, balance: s.balance };
-      }).sort(function(a, b) { return b.balance - a.balance; });
-
-      var i = 0, j = 0;
-      while (i < debtors.length && j < creditors.length) {
-        var debtor = debtors[i];
-        var creditor = creditors[j];
-        var amount = Math.min(Math.abs(debtor.balance), creditor.balance);
-        if (amount > 0.01) {
-          transactions.push({ from: debtor.person, to: creditor.person, amount: Math.round(amount * 100) / 100 });
-        }
-        debtor.balance += amount;
-        creditor.balance -= amount;
-        if (Math.abs(debtor.balance) < 0.01) i++;
-        if (Math.abs(creditor.balance) < 0.01) j++;
-      }
-
-      return { balances: settlements, transactions: transactions };
+      return {
+        count: records.length,
+        girlfriendPaid: girlfriendPaid,
+        youPaid: youPaid,
+        girlfriendCount: girlfriendCount,
+        youCount: youCount,
+        // > 0：你欠女友；< 0：女友欠你
+        net: girlfriendPaid - youPaid
+      };
     }
 
+    // ---------- 畫面 ----------
     function switchTab(index) {
       var tabs = document.querySelectorAll('.tab');
       var contents = document.querySelectorAll('.tab-content');
@@ -247,20 +266,22 @@
 
     function handleAddRecord(event) {
       event.preventDefault();
-      var amount = parseFloat(document.getElementById('amount').value);
-      var item = document.getElementById('item').value;
-      var note = document.getElementById('note').value;
-      var payer = amount > 0 ? GIRLFRIEND_NAME : YOUR_NAME;
-      var absAmount = Math.abs(amount);
-      addRecord({
-        item: item,
-        amount: absAmount,
-        payer: payer,
-        splitDetails: [{ name: amount > 0 ? YOUR_NAME : GIRLFRIEND_NAME, amount: absAmount }],
-        note: note
-      });
       var messageDiv = document.getElementById('addMessage');
-      messageDiv.innerHTML = '<div class="message success">\u2705 記錄已成功新增</div>';
+      var amount = parseFloat(document.getElementById('amount').value);
+      var item = document.getElementById('item').value.trim();
+      var note = document.getElementById('note').value.trim();
+      if (!isFinite(amount) || toCents(amount) === 0) {
+        messageDiv.innerHTML = '<div class="message error">金額不能為 0</div>';
+        return;
+      }
+      if (!item) {
+        messageDiv.innerHTML = '<div class="message error">請輸入項目說明</div>';
+        return;
+      }
+      var records = getRecords();
+      records.push(buildRecord(amount, item, note));
+      if (!saveRecords(records)) return;
+      messageDiv.innerHTML = '<div class="message success">✅ 記錄已成功新增</div>';
       document.getElementById('addForm').reset();
       setTimeout(function() { messageDiv.innerHTML = ''; }, 2000);
     }
@@ -272,7 +293,7 @@
         container.innerHTML = '<div class="loading">目前沒有任何記錄</div>';
         return;
       }
-      var html = '';
+      var html = '<div class="records-count">共 ' + records.length + ' 筆記錄</div>';
       records.slice().reverse().forEach(function(record) {
         var date = new Date(record.date);
         var dateStr = date.toLocaleDateString('zh-TW') + ' ' + date.toLocaleTimeString('zh-TW', {hour: '2-digit', minute: '2-digit'});
@@ -282,48 +303,54 @@
         var sign = isGirlfriendPaid ? '+' : '-';
         html += '<div class="record-card ' + cardClass + '">';
         html += '<div class="record-header">';
-        html += '<div class="record-title">' + record.item + '</div>';
-        html += '<div class="record-amount ' + amountClass + '">' + sign + '$' + Math.abs(record.amount).toLocaleString() + '</div>';
+        html += '<div class="record-title">' + escapeHtml(record.item) + '</div>';
+        html += '<div class="record-amount ' + amountClass + '">' + sign + '$' + formatCents(toCents(record.amount)) + '</div>';
         html += '</div>';
         html += '<div class="record-details">';
-        html += '<div>\uD83D\uDCC5 ' + dateStr + '</div>';
-        html += '<div>\uD83D\uDCB3 ' + record.payer + ' 付款</div>';
-        if (record.note) { html += '<div>\uD83D\uDCDD ' + record.note + '</div>'; }
-        html += '</div></div>';
+        html += '<div>📅 ' + escapeHtml(dateStr) + '</div>';
+        html += '<div>💳 ' + escapeHtml(record.payer) + ' 付款</div>';
+        if (record.note) { html += '<div>📝 ' + escapeHtml(record.note) + '</div>'; }
+        html += '</div>';
+        html += '<button class="btn-delete" onclick="deleteRecord(\'' + escapeHtml(record.id) + '\')">刪除</button>';
+        html += '</div>';
       });
       container.innerHTML = html;
+    }
+
+    function deleteRecord(id) {
+      var records = getRecords();
+      var target = records.filter(function(r) { return r.id === id; })[0];
+      if (!target) return;
+      if (!confirm('確定要刪除「' + target.item + '」這筆記錄嗎？')) return;
+      saveRecords(records.filter(function(r) { return r.id !== id; }));
+      loadRecords();
     }
 
     function loadSettlement() {
       var container = document.getElementById('settlementContainer');
       var result = calculateSettlement();
-      if (result.balances.length === 0) {
+      if (result.count === 0) {
         container.innerHTML = '<div class="loading">目前沒有任何記錄</div>';
         return;
       }
-      var girlfriendBalance = 0, yourBalance = 0;
-      result.balances.forEach(function(item) {
-        if (item.person === GIRLFRIEND_NAME) girlfriendBalance = item.balance;
-        else if (item.person === YOUR_NAME) yourBalance = item.balance;
-      });
       var html = '<div class="balance-summary">';
-      if (yourBalance < 0) {
+      if (result.net > 0) {
         html += '<div class="balance-text">你欠女友</div>';
-        html += '<div class="balance-amount">$' + Math.abs(yourBalance).toLocaleString() + '</div>';
-      } else if (yourBalance > 0) {
+      } else if (result.net < 0) {
         html += '<div class="balance-text">女友欠你</div>';
-        html += '<div class="balance-amount">$' + yourBalance.toLocaleString() + '</div>';
       } else {
         html += '<div class="balance-text">已結清</div>';
-        html += '<div class="balance-amount">$0</div>';
       }
+      html += '<div class="balance-amount">$' + formatCents(result.net) + '</div>';
       html += '</div>';
       html += '<div class="stats-grid">';
-      html += '<div class="stat-card girlfriend"><h3>女友總共付</h3>';
-      html += '<div class="value">$' + (girlfriendBalance > 0 ? girlfriendBalance : 0).toLocaleString() + '</div></div>';
-      html += '<div class="stat-card you"><h3>你總共付</h3>';
-      html += '<div class="value">$' + (yourBalance > 0 ? yourBalance : 0).toLocaleString() + '</div></div>';
+      html += '<div class="stat-card girlfriend"><h3>女友總共付（' + result.girlfriendCount + ' 筆）</h3>';
+      html += '<div class="value">$' + formatCents(result.girlfriendPaid) + '</div></div>';
+      html += '<div class="stat-card you"><h3>你總共付（' + result.youCount + ' 筆）</h3>';
+      html += '<div class="value">$' + formatCents(result.youPaid) + '</div></div>';
       html += '</div>';
+      html += '<div class="hint" style="margin-top:20px;">計算方式：女友總共付 $' + formatCents(result.girlfriendPaid) +
+        ' − 你總共付 $' + formatCents(result.youPaid) + ' = ' + (result.net < 0 ? '−' : '') + '$' + formatCents(result.net) + '</div>';
       container.innerHTML = html;
     }
 
@@ -334,74 +361,186 @@
       loadRecords();
     }
 
+    // ---------- 批量導入 ----------
+
+    // 統一全形/特殊符號：全形數字、全形 ＋－＄、Unicode 減號等
+    function normalizeLine(line) {
+      if (line.normalize) line = line.normalize('NFKC');
+      return line.replace(/[−‒–—➖﹣]/g, '-').trim();
+    }
+
+    // 解析一行，回傳 { type: 'record' | 'skip' | 'error', ... }
+    function parseBatchLine(rawLine) {
+      var line = normalizeLine(rawLine);
+      if (!line) return { type: 'blank' };
+
+      // LINE 匯出格式：「時間<Tab>名字<Tab>訊息」→ 只取訊息
+      if (line.indexOf('\t') !== -1) {
+        var parts = line.split('\t').map(function(s) { return s.trim(); }).filter(Boolean);
+        line = parts[parts.length - 1] || '';
+      }
+      // 去掉開頭的時間，例如「下午12:30 」「12:30 」
+      line = line.replace(/^(?:(?:上午|下午|早上|中午|晚上|AM|PM)\s*)?\d{1,2}:\d{2}(?::\d{2})?\s+/i, '');
+
+      // 日期分隔行 / LINE 檔頭，例如「2024/11/08（五）」「2024.11.08 星期五」「[LINE] ...」「儲存日期：...」
+      if (/^\d{4}\s*[\/.\-年]\s*\d{1,2}\s*[\/.\-月]\s*\d{1,2}/.test(line) ||
+          /^\[LINE\]/i.test(line) || /^儲存日期/.test(line)) {
+        return { type: 'skip' };
+      }
+
+      // 金額：可帶 +/-、$、千分位逗號、小數，後面可接「元」「塊」
+      var m = line.match(/^([+-]?)\s*\$?\s*(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?\s*(?:元|塊)?\s*(.*)$/);
+      if (!m) return { type: 'error', reason: '開頭不是金額' };
+
+      var amount = parseFloat(m[2].replace(/,/g, '') + (m[3] || ''));
+      if (m[1] === '-') amount = -amount;
+      var item = m[4].replace(/^[\s:：,，、\-]+/, '').trim();
+
+      if (toCents(amount) === 0) return { type: 'error', reason: '金額為 0' };
+      if (!item) return { type: 'error', reason: '缺少項目說明' };
+      return { type: 'record', amount: amount, item: item };
+    }
+
     function handleBatchImport() {
-      var input = document.getElementById('batchInput').value.trim();
+      var input = document.getElementById('batchInput').value;
       var messageDiv = document.getElementById('batchMessage');
       var previewDiv = document.getElementById('batchPreview');
-      if (!input) { messageDiv.innerHTML = '<div class="message error">請貼上記錄內容</div>'; return; }
+      if (!input.trim()) { messageDiv.innerHTML = '<div class="message error">請貼上記錄內容</div>'; return; }
 
-      var lines = input.split('\n');
       var records = [];
       var errors = [];
-      lines.forEach(function(line, index) {
-        line = line.trim();
-        if (!line) return;
-        var match = line.match(/^([+-]?\d+(?:\.\d+)?)\s*(.+)$/);
-        if (match) {
-          var amount = parseFloat(match[1].replace('+', ''));
-          var item = match[2].trim();
-          var payer = amount > 0 ? GIRLFRIEND_NAME : YOUR_NAME;
-          var absAmount = Math.abs(amount);
-          records.push({
-            item: item, amount: absAmount, payer: payer,
-            splitDetails: [{ name: amount > 0 ? YOUR_NAME : GIRLFRIEND_NAME, amount: absAmount }],
-            note: ''
-          });
-        } else {
-          errors.push('第 ' + (index + 1) + ' 行格式錯誤：' + line);
+      var skipped = 0;
+      input.split(/\r?\n/).forEach(function(line, index) {
+        var parsed = parseBatchLine(line);
+        if (parsed.type === 'record') {
+          records.push({ amount: parsed.amount, item: parsed.item, line: index + 1 });
+        } else if (parsed.type === 'skip') {
+          skipped++;
+        } else if (parsed.type === 'error') {
+          errors.push('第 ' + (index + 1) + ' 行（' + parsed.reason + '）：' + escapeHtml(line.trim()));
         }
       });
 
       if (records.length === 0) {
         messageDiv.innerHTML = '<div class="message error">沒有找到有效的記錄</div>';
         if (errors.length > 0) messageDiv.innerHTML += '<div class="message error">' + errors.join('<br>') + '</div>';
+        previewDiv.innerHTML = '';
+        window.batchRecords = null;
         return;
       }
 
-      var ph = '<div style="margin:20px 0;"><h3>即將導入 ' + records.length + ' 筆記錄：</h3>';
-      ph += '<div style="max-height:300px;overflow-y:auto;background:#f8f9fa;padding:15px;border-radius:8px;margin:10px 0;">';
+      // 檢查是否已經導入過（相同金額 + 相同項目），預設不勾選
+      var existingCount = {};
+      getRecords().forEach(function(r) {
+        var k = recordKey(r);
+        existingCount[k] = (existingCount[k] || 0) + 1;
+      });
+      var dupCount = 0;
       records.forEach(function(r) {
-        var sign = r.payer === GIRLFRIEND_NAME ? '+' : '-';
-        var color = r.payer === GIRLFRIEND_NAME ? '#ff6b9d' : '#28a745';
-        ph += '<div style="padding:8px;border-bottom:1px solid #e0e0e0;">';
-        ph += '<span style="color:' + color + ';font-weight:bold;">' + sign + '$' + r.amount.toLocaleString() + '</span> ';
-        ph += '<span>' + r.item + '</span>';
-        ph += ' <span style="color:#666;">(' + r.payer + ' 付款)</span></div>';
+        var k = recordKey(r);
+        if (existingCount[k] > 0) {
+          existingCount[k]--;
+          r.duplicate = true;
+          dupCount++;
+        }
+      });
+
+      var ph = '<div style="margin:20px 0;"><h3>解析出 ' + records.length + ' 筆記錄</h3>';
+      if (dupCount > 0) {
+        ph += '<div class="message warning">⚠️ 有 ' + dupCount + ' 筆跟現有記錄相同（金額和項目都一樣），可能已經導入過，預設不勾選。' +
+          '如果確定是新的消費，請手動勾選。</div>';
+      }
+      ph += '<div class="batch-list">';
+      records.forEach(function(r, i) {
+        var girlfriendPaid = r.amount > 0;
+        var sign = girlfriendPaid ? '+' : '-';
+        var color = girlfriendPaid ? '#ff6b9d' : '#28a745';
+        ph += '<label class="batch-row' + (r.duplicate ? ' duplicate' : '') + '">';
+        ph += '<input type="checkbox" class="batch-check" data-index="' + i + '"' + (r.duplicate ? '' : ' checked') + ' onchange="updateBatchSummary()"> ';
+        ph += '<span style="color:' + color + ';font-weight:bold;">' + sign + '$' + formatCents(toCents(r.amount)) + '</span> ';
+        ph += '<span>' + escapeHtml(r.item) + '</span>';
+        ph += ' <span style="color:#666;">(' + (girlfriendPaid ? GIRLFRIEND_NAME : YOUR_NAME) + ' 付款)</span>';
+        if (r.duplicate) ph += ' <span class="dup-tag">可能重複</span>';
+        ph += '</label>';
       });
       ph += '</div>';
+      ph += '<div id="batchSummary" class="hint"></div>';
+      if (skipped > 0) {
+        ph += '<div class="hint" style="margin-top:10px;">已自動略過 ' + skipped + ' 行日期 / 標題</div>';
+      }
       if (errors.length > 0) {
-        ph += '<div class="message error" style="margin-top:10px;">跳過 ' + errors.length + ' 行錯誤：<br>' + errors.slice(0,5).join('<br>');
-        if (errors.length > 5) ph += '<br>...還有 ' + (errors.length - 5) + ' 個錯誤';
+        ph += '<div class="message error" style="margin-top:10px;">有 ' + errors.length + ' 行無法辨識，不會導入：<br>' + errors.slice(0, 10).join('<br>');
+        if (errors.length > 10) ph += '<br>...還有 ' + (errors.length - 10) + ' 行';
         ph += '</div>';
       }
-      ph += '<button class="btn" onclick="confirmBatchImport()">確認導入</button>';
+      ph += '<button class="btn" id="confirmBatchBtn" onclick="confirmBatchImport()">確認導入</button>';
       ph += '<button class="btn btn-secondary" onclick="cancelBatchImport()">取消</button></div>';
       previewDiv.innerHTML = ph;
       messageDiv.innerHTML = '';
       window.batchRecords = records;
+      updateBatchSummary();
+    }
+
+    function getSelectedBatchRecords() {
+      var records = window.batchRecords || [];
+      var selected = [];
+      document.querySelectorAll('.batch-check').forEach(function(cb) {
+        if (cb.checked) selected.push(records[Number(cb.getAttribute('data-index'))]);
+      });
+      return selected.filter(Boolean);
+    }
+
+    function updateBatchSummary() {
+      var summaryDiv = document.getElementById('batchSummary');
+      if (!summaryDiv) return;
+      var selected = getSelectedBatchRecords();
+      var gf = 0, you = 0;
+      selected.forEach(function(r) {
+        var c = toCents(r.amount);
+        if (c > 0) gf += c; else you += -c;
+      });
+      var before = calculateSettlement().net;
+      var after = before + gf - you;
+      function describe(net) {
+        if (net > 0) return '你欠女友 $' + formatCents(net);
+        if (net < 0) return '女友欠你 $' + formatCents(net);
+        return '已結清';
+      }
+      summaryDiv.innerHTML = '將導入 <strong>' + selected.length + '</strong> 筆：女友付 $' + formatCents(gf) +
+        '，你付 $' + formatCents(you) + '<br>導入前：' + describe(before) + ' → 導入後：<strong>' + describe(after) + '</strong>';
+      var btn = document.getElementById('confirmBatchBtn');
+      if (btn) btn.disabled = selected.length === 0;
     }
 
     function confirmBatchImport() {
-      var records = window.batchRecords;
-      if (!records || records.length === 0) return;
+      var selected = getSelectedBatchRecords();
+      // 先清掉，避免連點導致重複導入
+      window.batchRecords = null;
+      var btn = document.getElementById('confirmBatchBtn');
+      if (btn) btn.disabled = true;
+      if (selected.length === 0) return;
+
       var messageDiv = document.getElementById('batchMessage');
       var previewDiv = document.getElementById('batchPreview');
-      records.forEach(function(record) { addRecord(record); });
-      messageDiv.innerHTML = '<div class="message success">成功導入 ' + records.length + ' 筆記錄！</div>';
+      var batchId = genId();
+      var records = getRecords();
+      selected.forEach(function(r) { records.push(buildRecord(r.amount, r.item, '', batchId)); });
+      if (!saveRecords(records)) return;
+
+      messageDiv.innerHTML = '<div class="message success">成功導入 ' + selected.length + ' 筆記錄！' +
+        ' <button class="btn-link" onclick="undoBatch(\'' + batchId + '\')">撤銷這次導入</button></div>';
       previewDiv.innerHTML = '';
       document.getElementById('batchInput').value = '';
-      window.batchRecords = null;
-      setTimeout(function() { switchTab(2); }, 1000);
+    }
+
+    function undoBatch(batchId) {
+      var records = getRecords();
+      var remaining = records.filter(function(r) { return r.batchId !== batchId; });
+      var removed = records.length - remaining.length;
+      if (removed === 0) return;
+      if (!confirm('確定要撤銷這次導入的 ' + removed + ' 筆記錄嗎？')) return;
+      saveRecords(remaining);
+      document.getElementById('batchMessage').innerHTML = '<div class="message success">已撤銷 ' + removed + ' 筆記錄</div>';
     }
 
     function cancelBatchImport() {
@@ -410,7 +549,13 @@
       window.batchRecords = null;
     }
 
-    window.onload = function() { loadRecords(); };
+    window.onload = function() {
+      // 預覽後又修改了貼上內容 → 預覽作廢，避免導入舊內容
+      document.getElementById('batchInput').addEventListener('input', function() {
+        if (window.batchRecords) cancelBatchImport();
+      });
+      loadRecords();
+    };
   </script>
 </body>
 </html>
